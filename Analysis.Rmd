@@ -1,0 +1,811 @@
+---
+title: "Determinants of environmentally friendly consumption"
+author: "Analysis by Sarah Gomm"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    number_sections: true
+  html_document:
+    number_sections: true
+subtitle: Comparing two conceptual frameworks
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Install & load packages -----------------
+packages <- c("gtools", "jtools", "here", "haven", "readstata13", "tidyverse", "coefplot", "patchwork", "ggplot2", "lm.beta", "vtable", "texreg", "writexl", "stargazer", "corrplot", "foreign", "texreg","sjPlot", "sjmisc", "knitr", "psych", "broom.mixed", "labelled", "rio", "ggplot2", "cregg", "dplyr", "dfidx", "mlogit", "plotly", "ltm", "modelsummary", "lavaan", "lavaanPlot") 
+
+for (p in packages) {
+  if (p %in% installed.packages()[,1]) require(p, character.only=T)
+  else {
+    install.packages(p)
+    library(p, character.only=T)
+  }
+  if (p %in% rownames(.packages()) == FALSE)
+  {library(p, character.only=T)
+  }
+}
+
+#Function for scaling between 0 and 1
+range_01 <- function(x){(x-min(x, na.rm = T))/(max(x, na.rm = T)-min(x, na.rm = T))}
+
+#Data loading and merging ---------------
+#Set working directory
+setwd("C:/Users/sagomm/polybox - Sarah Gomm (sarah.gomm@ir.gess.ethz.ch)@polybox.ethz.ch (2)/Shared/SEP_Consumption/Analysis") #Change to your own path
+
+load("Data/w14_recoded.RData")
+load("Data/w14_conjoint.RData")
+```
+
+# Descriptive statistics
+
+## Distribution of the two main concepts: DIPB and TPB
+
+The distributions of the Dragons of Inaction (DIPB) and Theory of Planned Behavior (TPB) scores show distinct patterns. The DIPB scores are left-skewed, indicating that most respondents score relatively low on psychological barriers to environmentally friendly consumption (Comparison to other studies?). In contrast, the TPB scores are more equally distributed, yet somewhat right-skewed, with more respondents expressing high levels of pro-environmental attitudes, social norms, perceived control, and behavioral intentions.
+
+```{r, fig.width=12, fig.height=4, echo=FALSE, warning=FALSE, message=FALSE}
+# Combine dragons and tpb_index for plotting
+hist_data <- data %>%
+  dplyr::select(dragons, tpb_index) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  mutate(variable = recode(variable,
+                           dragons = "Dragons Score",
+                           tpb_index = "TPB Index"))
+
+# Plot
+ggplot(hist_data, aes(x = value)) +
+  geom_histogram(aes(y = after_stat(count / sum(count) * 100)),
+                 bins = 30, fill = "#56B4E9", color = "white") +
+  facet_wrap(~ variable, nrow = 1, scales = "free") +
+  theme_minimal() +
+  labs(title = "Distributions of Theory of Planned Behaviour Items and Dragons Score",
+       x = "Score", y = "Percentage")
+```
+
+## Distribution of subdimensions of both frameworks
+
+```{r, fig.width=12, fig.height=3, echo=FALSE, warning=FALSE, message=FALSE}
+long_data <- data %>%
+  dplyr::select(change_di, goal_di, relations_di, know_di, token_di, w14_treat_product) %>%
+  pivot_longer(cols = -w14_treat_product, names_to = "concept", values_to = "value") %>%
+  drop_na()
+long_data  <- long_data %>%
+  mutate(product_type = factor(w14_treat_product, levels = 1:3,
+                               labels = c("Food products", "Electronic devices", "Clothes")))
+
+long_data <- long_data %>%
+  mutate(concept = recode(concept,
+                          change_di = "Change Unnecessary",
+                          goal_di = "Conflicting Goals and Aspirations",
+                          relations_di = "Interpersonal Relations",
+                          know_di = "Lacking Knowledge",
+                          token_di = "Tokenism"
+  ))
+
+# Create histograms
+ggplot(long_data, aes(x = value)) +
+  geom_histogram(aes(y = after_stat(count/sum(count)*100)), bins = 30, fill = "#1F78B4", color = "white") +
+  facet_wrap(~ concept, scales = "free", nrow = 1) +
+  theme_minimal() +
+  labs(title = "Subdimensions of Dragons of Inaction Scale", x = "Score", y = "Percentage")
+
+```
+
+```{r, fig.width=12, fig.height=3, echo=FALSE, warning=FALSE, message=FALSE}
+data <- data %>%
+  mutate(product_label = recode(as.character(w14_treat_product),
+                                "1" = "Food Products",
+                                "2" = "Electronic Devices",
+                                "3" = "Clothes"))
+
+tpb_box_data <- data %>%
+  dplyr::select(product_label, attitude_tpb, norm_tpb, control_tpb, intention_tpb) %>%
+  pivot_longer(cols = -product_label, names_to = "TPB_component", values_to = "value") %>%
+  mutate(TPB_component = recode(TPB_component,
+                                attitude_tpb = "Attitude",
+                                norm_tpb = "Social Norms",
+                                control_tpb = "Perceived Control",
+                                intention_tpb = "Intention"))
+
+# Create histograms
+ggplot(tpb_box_data, aes(x = value)) +
+  geom_histogram(aes(y = after_stat(count/sum(count)*100)), bins = 30, fill = "#4C9F70", color = "white") +
+  facet_wrap(~ TPB_component, scales = "free", nrow = 1) +
+  theme_minimal() +
+  labs(title = "Components of Theory of Planned Behaviour", x = "Score", y = "Percentage")
+```
+
+The 'dragons of inaction' sub-dimensions hardly vary by product type. There is somewhat more variation for the 'theory of planned behavior' concepts. Clothes have somewhat lower median values within our sample on all four sub-dimensions.
+
+```{r, fig.width=12, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(long_data, aes(x = product_type, y = value, fill = product_type)) +
+  geom_boxplot() +
+  facet_wrap(~ concept, scales = "free") +
+  theme_minimal() +
+  labs(title = "Dragons of Inaction Subdimensions - by product type", x = "Product Type", y = "Score") +
+  theme(legend.position = "none")
+```
+
+```{r, fig.width=12, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(tpb_box_data, aes(x = product_label, y = value, fill = product_label)) +
+  geom_boxplot() +
+  facet_wrap(~ TPB_component, scales = "free") +
+  theme_minimal() +
+  labs(title = "Components of Theory of Planned Behaviour - by product type", x = "Product Type", y = "Score") +
+  theme(legend.position = "none")
+```
+\newpage
+
+# Conjoint Outcomes
+
+Respondents completed six conjoint tasks—three per product category—in which they indicated their preferences between two product profiles. In each round, they made a forced choice between "Product A" and "Product B" and rated both products individually on a 7-point scale. For analysis, the rating outcome was dichotomized (1–4 vs. 5–7), which results in coefficients leaning toward the negative due to the chosen cut-off.
+
+The conjoint results show that both environmental impact and price significantly influence consumer preferences. However, given the relatively narrow price ranges used in the design, the effect of environmental impact emerged as stronger than that of price. Overall, respondents showed a clear preference for products with lower environmental impact and lower cost. These patterns were consistent across product categories, with no substantial variation in answer tendencies by product type.
+
+```{r, fig.width=16, fig.height=10, echo=FALSE, warning=FALSE, message=FALSE}
+# Custom theme
+theme_custom <- function() {
+  theme_minimal(base_size = 14) +
+    theme(
+      strip.text.y = element_text(angle = 90, size = 14, face = "bold"),
+      strip.background = element_blank(),
+      strip.placement = "outside",
+      panel.spacing = unit(1, "lines"),
+      axis.text.y = element_text(size = 12),
+      axis.text.x = element_text(size = 12),
+      axis.title.x = element_text(size = 14, face = "bold"),
+      legend.position = "right",
+      panel.grid.major = element_line(color = "grey95"),
+      panel.grid.minor = element_line(color = "grey95"),
+      plot.margin = margin(r = 10, l = 20)
+    )
+}
+
+# Filter for conjoint participants
+dfconj <- dfconj %>% filter(!is.na(pid))
+
+# Rating-based marginal means
+mm_rating <- cj(dfconj, rating ~ impact + price, id = ~ pid, estimate = "mm", by = ~ product) %>%
+  mutate(feature = recode(feature, "price" = "Price", "impact" = "Environmental impact"))
+
+plot_rating <- ggplot(mm_rating, aes(x = estimate, y = level, color = product, shape = product)) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray60", linewidth = 1) +
+  geom_point(position = position_dodge(width = 1), size = 2) +
+  geom_errorbarh(aes(xmin = lower, xmax = upper), position = position_dodge(width = 1),
+                 height = 0.2, linewidth = 0.8) +
+  facet_grid(feature ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  labs(title = "Rating per Product", x = "Marginal means", y = "", color = "Product", shape = "Product") +
+  theme_custom()
+
+# Choice-based marginal means
+mm_choice <- cj(dfconj, choice ~ impact + price, id = ~ pid, estimate = "mm", by = ~ product) %>%
+  mutate(feature = recode(feature, "price" = "Price", "impact" = "Environmental impact"))
+
+plot_choice <- ggplot(mm_choice, aes(x = estimate, y = level, color = product, shape = product)) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "gray60", linewidth = 1) +
+  geom_point(position = position_dodge(width = 1), size = 2) +
+  geom_errorbarh(aes(xmin = lower, xmax = upper), position = position_dodge(width = 1),
+                 height = 0.2, linewidth = 0.8) +
+  facet_grid(feature ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  labs(title = "Forced Choice (Product A or B)", x = "Marginal means", y = "", color = "Product", shape = "Product") +
+  theme_custom()
+
+# Combine plots side-by-side
+(plot_choice + plot_rating) +
+  plot_layout(ncol = 2, guides = "collect") &
+  theme(legend.position = "bottom")
+```
+
+\newpage
+We also conducted a willingness-to-pay (WTP) analysis using the price variable. The results of the multinomial logit model confirm that environmental impact is a strong predictor of product choice, even when controlling for price. Products with lower environmental impact were significantly more likely to be chosen than those with very high impact. This relationship reflects a general willingness to pay more for environmentally friendly attributes—though the extent of this willingness varies across individuals and product types.
+
+However, the absolute WTP estimates appear inflated, even after accounting for outliers with reversed utility patterns. This is primarily due to the fact that the price coefficient enters the WTP formula in the denominator. When the price coefficient is relatively weak—as observed in our model—it leads to disproportionately large WTP values. This may be because the selected price categories were perceived as too narrow or insufficiently relevant. Furthermore, social desirability bias may have caused respondents to focus more on environmental impact than price, further weakening the price signal. Given these factors, we interpret the findings in relative terms—i.e., how WTP differs across environmental impact levels and product types—rather than relying on the absolute monetary estimates.
+
+```{r, fig.width=16, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}
+## Willingness to pay
+dfconj <- dfconj[, c("pid", "measure", "round", "choice", "rating", "price", "impact", "product", "w14_treat_product")]
+                 
+dfconj$cost_smart <- as.numeric(ifelse(dfconj$price == "Very low price", 450,
+                                            ifelse(dfconj$price == "Low price", 475,
+                                                   ifelse(dfconj$price == "Medium price", 500,
+                                                          ifelse(dfconj$price == "High price", 525,
+                                                                 ifelse(dfconj$price == "Very high price", 550, NA))))))
+
+
+dfconj$cost_lap <- as.numeric(ifelse(dfconj$price == "Very low price", 1260,
+                                            ifelse(dfconj$price == "Low price", 1330,
+                                                   ifelse(dfconj$price == "Medium price", 1400,
+                                                          ifelse(dfconj$price == "High price", 1470,
+                                                                 ifelse(dfconj$price == "Very high price", 1540, NA))))))
+
+dfconj$cost_shirt <- as.numeric(ifelse(dfconj$price == "Very low price", 34,
+                                            ifelse(dfconj$price == "Low price", 36,
+                                                   ifelse(dfconj$price == "Medium price", 38,
+                                                          ifelse(dfconj$price == "High price", 40,
+                                                                 ifelse(dfconj$price == "Very high price", 42, NA))))))
+
+dfconj$cost_jack <- as.numeric(ifelse(dfconj$price == "Very low price", 135,
+                                            ifelse(dfconj$price == "Low price", 143,
+                                                   ifelse(dfconj$price == "Medium price", 150,
+                                                          ifelse(dfconj$price == "High price", 158,
+                                                                 ifelse(dfconj$price == "Very high price", 165, NA))))))
+
+dfconj$cost_choc <- as.numeric(ifelse(dfconj$price == "Very low price", 2.7,
+                                            ifelse(dfconj$price == "Low price", 2.85,
+                                                   ifelse(dfconj$price == "Medium price", 3,
+                                                          ifelse(dfconj$price == "High price", 3.15,
+                                                                 ifelse(dfconj$price == "Very high price", 3.3, NA))))))
+
+
+dfconj$cost_tom <- as.numeric(ifelse(dfconj$price == "Very low price", 4.5,
+                                            ifelse(dfconj$price == "Low price", 4.75,
+                                                   ifelse(dfconj$price == "Medium price", 5,
+                                                          ifelse(dfconj$price == "High price", 5.25,
+                                                                 ifelse(dfconj$price == "Very high price", 5.50, NA))))))
+
+
+# Reverse levels for the environmental impact variable
+dfconj$impact <- factor(dfconj$impact, levels = rev(levels(dfconj$impact)))
+
+
+
+#### Prep ch for dfidx #################################################################################################
+
+prod_profil_A <- subset(dfconj, measure == 1)
+
+colnames(prod_profil_A) <- c("ID", "product_profile" , "roundid", "choice", "rating", "price.A", "impact.A", "product.A", "type.A", 
+                             "cost_smart.A", "cost_lap.A", "cost_shirt.A", "cost_jack.A", "cost_choc.A", "cost_tom.A")
+
+prod_profil_A <- subset(prod_profil_A, select = -c(product_profile))
+
+
+prod_profil_B <- subset(dfconj, measure == 2)
+
+colnames(prod_profil_B) <-  c("ID", "product_profile" , "roundid", "choice", "rating", "price.B", "impact.B", "product.B", "type.B", 
+                              "cost_smart.B", "cost_lap.B", "cost_shirt.B","cost_jack.B", "cost_choc.B", "cost_tom.B")
+
+
+prod_profil_B <- subset(prod_profil_B, select = -c(product_profile, choice, roundid, ID))
+
+data <- cbind(prod_profil_A, prod_profil_B)
+
+col_order_smart <- c("ID", "roundid", "choice", "rating", "product.A", "product.B", "type.A", "type.B", "price.A", "price.B",
+               "cost_lap.A", "cost_shirt.A", "cost_jack.A", "cost_choc.A", "cost_tom.A",
+               "cost_lap.B", "cost_shirt.B","cost_jack.B", "cost_choc.B", "cost_tom.B",
+               "impact.A", "cost_smart.A", "impact.B", "cost_smart.B")
+
+col_order_lap <- c("ID", "roundid", "choice", "rating", "product.A", "product.B", "type.A", "type.B", "price.A", "price.B",
+                     "cost_smart.A", "cost_shirt.A", "cost_jack.A", "cost_choc.A", "cost_tom.A",
+                     "cost_smart.B", "cost_shirt.B","cost_jack.B", "cost_choc.B", "cost_tom.B",
+                     "impact.A", "cost_lap.A", "impact.B", "cost_lap.B")
+
+col_order_jack <- c("ID", "roundid", "choice", "rating","product.A", "product.B", "type.A", "type.B", "price.A", "price.B",
+                     "cost_lap.A", "cost_shirt.A", "cost_smart.A", "cost_choc.A", "cost_tom.A",
+                     "cost_lap.B", "cost_shirt.B","cost_smart.B", "cost_choc.B", "cost_tom.B",
+                     "impact.A", "cost_jack.A", "impact.B", "cost_jack.B")
+
+col_order_shirt <- c("ID", "roundid", "choice", "rating","product.A", "product.B", "type.A", "type.B", "price.A", "price.B",
+                     "cost_lap.A", "cost_smart.A", "cost_jack.A", "cost_choc.A", "cost_tom.A",
+                     "cost_lap.B", "cost_smart.B","cost_jack.B", "cost_choc.B", "cost_tom.B",
+                     "impact.A", "cost_shirt.A", "impact.B", "cost_shirt.B")
+
+col_order_choc <- c("ID", "roundid", "choice", "rating","product.A", "product.B", "type.A", "type.B", "price.A", "price.B",
+                     "cost_lap.A", "cost_shirt.A", "cost_jack.A", "cost_smart.A", "cost_tom.A",
+                     "cost_lap.B", "cost_shirt.B","cost_jack.B", "cost_smart.B", "cost_tom.B",
+                     "impact.A", "cost_choc.A", "impact.B", "cost_choc.B")
+
+col_order_tom <- c("ID", "roundid", "choice", "rating","product.A", "product.B", "type.A", "type.B", "price.A", "price.B",
+                     "cost_lap.A", "cost_shirt.A", "cost_jack.A", "cost_choc.A", "cost_smart.A",
+                     "cost_lap.B", "cost_shirt.B","cost_jack.B", "cost_choc.B", "cost_smart.B",
+                     "impact.A", "cost_tom.A", "impact.B", "cost_tom.B")
+
+
+data_smart <- data[, col_order_smart]
+data_smart <- data_smart %>% mutate(choice = ifelse(choice == "1", "A", "B"))
+data_smart$unique_id <- as.character(interaction(data_smart$roundid, data_smart$ID, sep = "."))
+
+data_lap <- data[, col_order_lap]
+data_lap <- data_lap %>% mutate(choice = ifelse(choice == "1", "A", "B"))
+data_lap$unique_id <- as.character(interaction(data_lap$roundid, data_lap$ID, sep = "."))
+
+data_jack <- data[, col_order_jack]
+data_jack <- data_jack %>% mutate(choice = ifelse(choice == "1", "A", "B"))
+data_jack$unique_id <- as.character(interaction(data_jack$roundid, data_jack$ID, sep = "."))
+
+data_shirt <- data[, col_order_shirt]
+data_shirt <- data_shirt %>% mutate(choice = ifelse(choice == "1", "A", "B"))
+data_shirt$unique_id <- as.character(interaction(data_shirt$roundid, data_shirt$ID, sep = "."))
+
+data_choc <- data[, col_order_choc]
+data_choc <- data_choc %>% mutate(choice = ifelse(choice == "1", "A", "B"))
+data_choc$unique_id <- as.character(interaction(data_choc$roundid, data_choc$ID, sep = "."))
+
+data_tom <- data[, col_order_tom]
+data_tom <- data_tom %>% mutate(choice = ifelse(choice == "1", "A", "B"))
+data_tom$unique_id <- as.character(interaction(data_tom$roundid, data_tom$ID, sep = "."))
+
+#Restrict data to product type ##################################################################################################
+data_smart <- data_smart %>% filter(product.A == "Smartphone" & product.B == "Smartphone")
+data_lap <- data_lap %>% filter(product.A == "Laptop" & product.B == "Laptop")
+data_jack <- data_jack %>% filter(product.A == "Jacket" & product.B == "Jacket")
+data_shirt <- data_shirt %>% filter(product.A == "Shirt" & product.B == "Shirt")
+data_choc <- data_choc %>% filter(product.A == "Chocolate (100g)" & product.B == "Chocolate (100g)")
+data_tom <- data_tom %>% filter(product.A == "Tomatoes (1kg)" & product.B == "Tomatoes (1kg)")
+
+
+########### Apply dfidx ##################################################################################################
+mlogdata_smart <- dfidx(data_smart, idx = "unique_id", choice = "choice",  varying = c("impact.A", "cost_smart.A", "impact.B", "cost_smart.B"), sep = ".")
+mlogdata_lap <- dfidx(data_lap, idx = "unique_id", choice = "choice", varying = c("impact.A", "cost_lap.A", "impact.B", "cost_lap.B"), sep = ".")
+mlogdata_jack <- dfidx(data_jack, idx = "unique_id", choice = "choice", varying = c("impact.A", "cost_jack.A", "impact.B", "cost_jack.B"), sep = ".")
+mlogdata_shirt <- dfidx(data_shirt, idx = "unique_id", choice = "choice", varying = c("impact.A", "cost_shirt.A", "impact.B", "cost_shirt.B"), sep = ".")
+mlogdata_choc <- dfidx(data_choc, idx = "unique_id", choice = "choice", varying = c("impact.A", "cost_choc.A", "impact.B", "cost_choc.B"), sep = ".")
+mlogdata_tom <- dfidx(data_tom, idx = "unique_id", choice = "choice", varying = c("impact.A", "cost_tom.A", "impact.B", "cost_tom.B"), sep = ".")
+
+
+########### mlogit & WTP ##################################################################################################
+# Create data frames for all models
+m1 <- mlogit(choice ~ cost_smart + impact | -1, mlogdata_smart)
+m2 <- mlogit(choice ~ cost_lap + impact | -1, mlogdata_lap)
+m3 <- mlogit(choice ~ cost_jack + impact | -1, mlogdata_jack)
+m4 <- mlogit(choice ~ cost_shirt + impact | -1, mlogdata_shirt)
+m5 <- mlogit(choice ~ cost_choc + impact | -1, mlogdata_choc)
+m6 <- mlogit(choice ~ cost_tom + impact | -1, mlogdata_tom)
+
+# Model summaries with CIs
+get_summary <- function(model) {
+  summary_df <- as.data.frame(summary(model)$CoefTable)
+  summary_df$Variable <- rownames(summary_df)
+  transform(summary_df,
+            CI_lower = Estimate - 1.96 * `Std. Error`,
+            CI_upper = Estimate + 1.96 * `Std. Error`)
+}
+
+model_summary_m1 <- get_summary(m1)
+model_summary_m2 <- get_summary(m2)
+model_summary_m3 <- get_summary(m3)
+model_summary_m4 <- get_summary(m4)
+model_summary_m5 <- get_summary(m5)
+model_summary_m6 <- get_summary(m6)
+
+# WTP calculation
+get_wtp <- function(model, cost_var) {
+  wtp <- data.frame(WTP = -coef(model)[-1] / coef(model)[cost_var])
+  rownames(wtp) <- names(coef(model))[-1]
+  wtp
+}
+
+wtp_smartphone <- get_wtp(m1, "cost_smart")
+wtp_laptop <- get_wtp(m2, "cost_lap")
+wtp_jacket <- get_wtp(m3, "cost_jack")
+wtp_shirt <- get_wtp(m4, "cost_shirt")
+wtp_chocolate <- get_wtp(m5, "cost_choc")
+wtp_tomatoes <- get_wtp(m6, "cost_tom")
+
+# Create attribute data frames
+create_df <- function(attribute, wtp) {
+  data.frame(
+    Attribute = attribute,
+    Category = c("Very high", "High", "Medium", "Low", "Very low"),
+    WTP = c(0, wtp$WTP[1:4])
+  )
+}
+
+Smartphone <- create_df("Smartphone", wtp_smartphone)
+Laptop <- create_df("Laptop", wtp_laptop)
+Jacket <- create_df("Jacket", wtp_jacket)
+Shirt <- create_df("Shirt", wtp_shirt)
+Chocolate <- create_df("Chocolate", wtp_chocolate)
+Tomatoes <- create_df("Tomatoes", wtp_tomatoes)
+
+
+#PLOT for WTP
+# Combine all WTP data
+WTP_combined <- rbind(Smartphone, Laptop, Jacket, Shirt, Chocolate, Tomatoes)
+
+# Create a combined model summary
+df_list <- list(
+  Smartphone = model_summary_m1,
+  Laptop = model_summary_m2,
+  Jacket = model_summary_m3,
+  Shirt = model_summary_m4,
+  Chocolate = model_summary_m5,
+  Tomatoes = model_summary_m6
+)
+
+# Add product labels to each model summary
+df_combined <- do.call(rbind, 
+                       lapply(names(df_list), function(name) {
+                         df <- subset(df_list[[name]], !grepl("cost_", Variable))
+                         df$WTP <- get(paste0("wtp_", tolower(name)))$WTP
+                         df$Product <- name
+                         df
+                       }))
+
+# Create a named vector for renaming variables
+variable_names <- c(
+  "impactVery low" = "Very low",
+  "impactLow" = "Low",
+  "impactMedium" = "Medium",
+  "impactHigh" = "High"
+)
+
+df_combined$Variable <- factor(df_combined$Variable, 
+                               levels = names(variable_names), 
+                               labels = variable_names)
+
+# Plot
+df_combined$Product <- factor(df_combined$Product, 
+                              levels = c("Smartphone", "Jacket", "Chocolate", 
+                                         "Laptop", "Shirt", "Tomatoes"))
+
+
+ggplot(df_combined, aes(x = Variable, y = Estimate, color = Product)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = CI_lower, ymax = CI_upper), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  geom_text(aes(label = paste0(round(WTP, 2), " CHF")),
+            hjust = 0.5, vjust = -1.5, size = 3.5) +
+  coord_flip() +
+  facet_wrap(~ Product, scales = "free_y", nrow = 2) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  labs(title = "Multinomial logit model and 'willingness to pay' estimates (reference category: very high environmental impact)",
+       x = "Environmental impact",
+       y = "Multinomial logit coefficient")
+
+```
+\newpage
+
+# Comparing the explanatory power of two scales
+
+## Product Choice by Dragons of Inaction and Theory of Planned Behavior
+
+Including interaction terms in the conjoint analyses allows us to inspect varying response patterns conditional on an individual's DIPB-Score or TPB-Score. All concepts are standardized and displayed from -2 to +2 standard deviations. The measured outcome is the conjoint choice for a specific product given its environmental impact (split into terciles) and holding price constant. 
+
+### Dragons of inaction
+The pattern is the same for each sub-dimension of the DIPB-scale. The higher the score the less likely are the respondents to choose an environmentally friendly product.
+```{r dragon_plot, echo=FALSE, warning=FALSE, message=FALSE, out.width="100%"}
+knitr::include_graphics("C:/Users/sagomm/polybox - Sarah Gomm (sarah.gomm@ir.gess.ethz.ch)@polybox.ethz.ch (2)/Shared/SEP_Consumption/Analysis/Figures/Dragon_indices_support.png")
+```
+
+### Theory of planned behaviour
+The pattern is reversed for sub-dimensions of the theory of planned behaviour. The higher respondents score on an item, the more likely they are to choose environmentally friendly products. 
+
+```{r dragon_plot2, echo=FALSE, warning=FALSE, message=FALSE, out.width="100%"}
+knitr::include_graphics("C:/Users/sagomm/polybox - Sarah Gomm (sarah.gomm@ir.gess.ethz.ch)@polybox.ethz.ch (2)/Shared/SEP_Consumption/Analysis/Figures/TPB_indices_support.png")
+```
+
+### Indices by product category
+The patterns remain the same across varying product categories. 
+
+```{r dragon_plot3, echo=FALSE, warning=FALSE, message=FALSE, out.width="100%"}
+knitr::include_graphics("C:/Users/sagomm/polybox - Sarah Gomm (sarah.gomm@ir.gess.ethz.ch)@polybox.ethz.ch (2)/Shared/SEP_Consumption/Analysis/Figures/products_support.png")
+```
+
+\newpage
+## Regression models
+Running regression models with the DIPB-score and TPB-score as explanatory variables shows that both are statistically significant predictors of green consumer behaviour. The adjusted R-squared is somewhat larger for the model only inlcuding the DIPB-score and controls as compared to the TPB-score and controls. 
+
+```{r, fig.width=14, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE}
+setwd("C:/Users/sagomm/polybox - Sarah Gomm (sarah.gomm@ir.gess.ethz.ch)@polybox.ethz.ch (2)/Shared/SEP_Consumption/Analysis") #Change to your own path
+
+load("Data/w14_recoded.RData")
+data_clean <- data[complete.cases(data[, c("dragons_f", "tpb_index_f", "age_sc", "gender", "change_di", 
+                                           "goal_di", "relations_di", "know_di", "token_di", "attitude_tpb", 
+                                           "norm_tpb", "control_tpb", "intention_tpb")]), ]
+
+controls <- "+ age_sc + gender"
+
+#Simple regression models
+m1 <- lm(paste("green_grmscore_rescaled ~ dragons", controls), data = data_clean)
+m2 <- lm(paste("green_grmscore_rescaled ~ tpb_index", controls), data = data_clean)
+m3 <- lm(paste("green_grmscore_rescaled ~ change_di + goal_di + relations_di + know_di + token_di", controls), data = data_clean)
+m4 <- lm(paste("green_grmscore_rescaled ~ attitude_tpb + norm_tpb + control_tpb + intention_tpb", controls), data = data_clean)
+
+# Table output
+# Table output
+modelsummary(
+  list("Dragons Index" = m1, "TPB Index" = m2, "Dragons Items" = m3, "TPB Items" = m4),
+  output = "html",
+  estimate = "{estimate}{stars}",        # Coefficient + stars in one row
+  statistic = "({std.error})",           # Standard error in parentheses, same row
+  coef_map = c(
+    "dragons" = "Dragons Index",
+    "tpb_index" = "TPB Score",
+    "change_di" = "Change unneccesary (DI)",
+    "goal_di" = "Goal aspirations (DI)",
+    "relations_di" = "Interpresonal relations (DI)",
+    "know_di" = "Lacking knowledge (DI)",
+    "token_di" = "Tokenism (DI)",
+    "attitude_tpb" = "Attitude (TPB)",
+    "norm_tpb" = "Subjective norm (TPB)",
+    "control_tpb" = "Behavioural control (TPB)",
+    "intention_tpb" = "Behavioural intention (TPB)"
+  ),
+  gof_map = c("nobs", "r.squared", "adj.r.squared", "AIC", "BIC"),
+  title = "Linear regression models for green consumer behaviour"
+)
+
+
+```
+
+\newpage
+In addition, we conducted a likelihood ratio test to compare the predictive power of the four models. 
+```{r, fig.width=14, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE}
+setwd("C:/Users/sagomm/polybox - Sarah Gomm (sarah.gomm@ir.gess.ethz.ch)@polybox.ethz.ch (2)/Shared/SEP_Consumption/Analysis") #Change to your own path
+
+load("Data/w14_recoded.RData")
+data_clean <- data[complete.cases(data[, c("dragons_f", "tpb_index_f", "age_sc", "gender", "change_di", 
+                                           "goal_di", "relations_di", "know_di", "token_di", "attitude_tpb", 
+                                           "norm_tpb", "control_tpb", "intention_tpb")]), ]
+
+controls <- "+ age_sc + gender"
+
+#Simple regression models
+m1 <- lm(paste("green_grmscore_rescaled ~ dragons", controls), data = data_clean)
+m2 <- lm(paste("green_grmscore_rescaled ~ tpb_index", controls), data = data_clean)
+m3 <- lm(paste("green_grmscore_rescaled ~ change_di + goal_di + relations_di + know_di + token_di", controls), data = data_clean)
+m4 <- lm(paste("green_grmscore_rescaled ~ attitude_tpb + norm_tpb + control_tpb + intention_tpb", controls), data = data_clean)
+
+
+# Likelihood ratio test
+#anova(m1, m2, m3, m4)
+```
+
+\newpage
+## Path analysis
+Lastly, we fit three path models corresponding to the theoretical expectations posed in the pre-registration. 
+
+### Path model 1: Theory of planned behaviour
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#STEP 1: Simple Theory of planned behaviour Model
+
+# Define the TPB path model
+tpb_model <- '
+  # Predict intention
+  intention_tpb ~ attitude_tpb + norm_tpb + control_tpb
+
+  # Predict behavior
+  green_grmscore_rescaled ~ intention_tpb
+
+  # Optional: direct effects of predictors on behavior
+  green_grmscore_rescaled ~ control_tpb
+'
+fit1 <- sem(tpb_model, data = data, meanstructure = TRUE)
+#summary(fit1, fit.measures = TRUE, standardized = TRUE)
+
+# Define labels for variables
+labels <- list(
+  attitude_tpb = "Attitude",
+  norm_tpb = "Social norms",
+  control_tpb = "Behavioral control",
+  intention_tpb = "Behavioral intention",
+  green_grmscore_rescaled = "Green behavior"
+)
+  
+  # Create the lavaan path plot with customization
+p1 <- lavaanPlot(
+  model = fit1,
+  labels = labels,  # <-- Add this line
+  graph_options = list(rankdir = "LR"),
+  node_options = list(shape = "ellipse", fontname = "Helvetica"),
+  edge_options = list(color = "black", fontname = "Helvetica"),
+  coefs = TRUE,
+  sig = 0.05,
+  stand = TRUE,
+  digits = 2,
+  stars = c("regress"),
+  covs = FALSE
+)
+
+p1
+```
+
+### Path Model 2: DIPB as mediating factor in the TPB framework
+From Pre-reg: "So far, the explanatory value of the DIPB Scale has not been systematically assessed,particularly in comparison or in combination with the Theory of Planned Behavior (TPB). For instance, as Gifford et al. (2022) suggested, the DIPB might be viewed as mediating between Intention and Behavior in the TPB framework (see Figure 1)."
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#STEP 2: Add Dragons of Inaction Index as Moderator
+tpb_model <- '
+  # Predict intention
+  intention_tpb ~ attitude_tpb + norm_tpb + control_tpb
+
+  #Predict DIPD
+  dragons  ~ intention_tpb
+  
+  # Predict behavior (moderation model)
+  green_grmscore_rescaled ~ intention_tpb + dragons + 
+
+  # Optional direct effect of control (if you still want it)
+  #green_grmscore_rescaled ~ control_tpb
+'
+
+fit2 <- sem(tpb_model, data = data, meanstructure = TRUE)
+#summary(fit2, fit.measures = TRUE, standardized = TRUE)
+
+
+# Define labels for variables
+labels <- list(
+  attitude_tpb = "Attitude",
+  norm_tpb = "Social norms",
+  control_tpb = "Behavioral control",
+  intention_tpb = "Behavioral intention",
+  dragons = "Dragons of Inaction",
+  #intention_dragons = "Intention × Dragons",
+  green_grmscore_rescaled = "Green behavior"
+)
+
+
+p2 <- lavaanPlot(
+  model = fit2,
+  labels = labels,  # <-- Add this line
+  graph_options = list(rankdir = "LR"),
+  node_options = list(shape = "ellipse", fontname = "Helvetica"),
+  edge_options = list(color = "black", fontname = "Helvetica"),
+  coefs = TRUE,
+  sig = 0.05,
+  stand = TRUE,
+  digits = 2,
+  stars = c("regress"),
+  covs = FALSE
+)
+
+p2
+
+```
+
+### Path Model 3: Potential effects of components of the DIPB in  the TPB framework
+From Pre-reg: "It is unclear, however, whether the DIPB should be understood as a mediator in the effect of
+intention on behavior or whether different “dragons” (subscales of the DIPB) may affect
+different components of the framework shown in Figure 2. For instance, “Change
+Unnecessary” addresses a dragon that is closely linked to attitude. “Interpersonal relations”
+addresses a dragon that is closely linked to social norms. “Lacking knowledge” addresses a
+dragon that is closely linked to perceived behavioral control. “Conflicting goals” addresses a
+dragon that is closely linked to attitude and intention. “Tokenism” addresses a dragon that is
+closely linked to intention and behavior."
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#STEP 3: Add Dragons of Inaction Concepts to Path
+#MEDIATION MODEL
+tpb_model <- '
+  # Predict attitude and norms
+  attitude_tpb ~ change_di
+  norm_tpb ~ relations_di
+
+  # Predict Behavioural intention
+  intention_tpb ~ attitude_tpb + norm_tpb + control_tpb +goal_di
+  
+  goal_di ~ attitude_tpb
+  token_di ~  intention_tpb
+  # Predict behavior
+  green_grmscore_rescaled ~ intention_tpb + token_di
+  
+
+'
+fit3 <- sem(tpb_model, data = data, meanstructure = TRUE)
+#summary(fit3, fit.measures = TRUE, standardized = TRUE)
+
+labels <- list(
+  #attitude_goal = "Attitude × Goal aspirations",
+  attitude_tpb = "Attitude",
+  norm_tpb = "Social norms",
+  control_tpb = "Behavioral control",
+  intention_tpb = "Behavioral intention",
+  green_grmscore_rescaled = "Green behavior",
+  token_di = "Tokenism",
+  #intention_token = "Intention × Tokenism",
+  goal_di = "Conflicting goal aspirations",
+  change_di = "Change unnecessary",
+  relations_di = "Interpersonal relations"
+)
+
+p3 <- lavaanPlot(
+  model = fit3,
+  labels = labels,  # <-- Add this line
+  graph_options = list(rankdir = "LR"),
+  node_options = list(shape = "ellipse", fontname = "Helvetica"),
+  edge_options = list(color = "black", fontname = "Helvetica"),
+  coefs = TRUE,
+  sig = 0.05,
+  stand = TRUE,
+  digits = 2,
+  stars = c("regress"),
+  covs = FALSE
+)
+
+
+p3
+```
+
+\newpage
+
+# Appendix
+
+## Building a 'green consumerism' score
+
+```{r, fig.width=14, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE} 
+load("C:/Users/sagomm/polybox - Sarah Gomm (sarah.gomm@ir.gess.ethz.ch)@polybox.ethz.ch (2)/Shared/SEP_Consumption/Analysis/Data/w14_conjoint.RData") 
+
+impact_levels <- c("Very low", "Low", "Medium", "High", "Very high") 
+
+dfconj$impact_num <- as.numeric(factor(dfconj$impact, levels = impact_levels)) 
+price_levels <- c("Very low price", "Low price", "Medium price", "High price", "Very high price") 
+dfconj$price_num <- as.numeric(factor(dfconj$price, levels = price_levels))  
+dfconj <- dfconj %>%   mutate(impact_rev = 6 - impact_num) 
+
+#Reverse Environmental impact variable  
+
+grm_data <- dfconj %>%   mutate(item_id = paste0("p", price_num, "_e", impact_rev))  
+
+# Create 25 product profiles  
+
+grm_data <- grm_data %>%   dplyr::select(pid, item_id, rating_num) %>%   group_by(pid, item_id) %>%   slice_sample(n = 1) %>%  
+
+# Randomly select one rating per pid-item pair   
+ungroup() %>%   pivot_wider(names_from = item_id, values_from = rating_num)  
+
+# Remove rows where all items are NA for a respondent (pid) 
+helper <- grm_data %>%   
+  ungroup() %>%     
+  filter(rowSums(is.na( dplyr::select(., -pid))) < ncol(.) - 1) 
+
+grm_data_clean <- helper[, !(names(helper) %in% c("pid", "pNA_eNA"))]  
+
+# Fit the Graded Response Model 
+grm_model <- grm(grm_data_clean)  
+grm_coefs <- coef(grm_model) 
+
+grm_table <- as.data.frame(grm_coefs)  
+
+# Step 1: Add item names from rownames 
+grm_table <- grm_table %>%   rownames_to_column(var = "item")  
+
+# Step 2: Rename columns 
+colnames(grm_table) <- c("item", paste0("Threshold", 1:6), "Discrimination")  
+
+# Extract product and environmental impact components 
+grm_table <- grm_table %>%   mutate(     product = as.integer(sub("p(\\d+)_e\\d+", "\\1", item)),     impact  = as.integer(sub("p\\d+_e(\\d+)", "\\1", item))   )  
+
+# Sort by product, then by impact 
+grm_table_sorted <- grm_table %>%   arrange(product, impact) %>%   dplyr::select(-product, -impact)  
+
+# Remove helper columns  # Display nicely in R Markdown 
+kable(grm_table_sorted, digits = 2, caption = "GRM Parameters: Discrimination and Thresholds for Each Product-Impact Combination")  
+
+#Plot Parameters 
+grm_table$Discrimination <- as.numeric(grm_table$Discrimination)  
+positive_items <- which(grm_table$Discrimination > 0) 
+negative_items <- which(grm_table$Discrimination < 0)  
+par(mfrow = c(1, 2)) 
+plot(grm_model, type = "IIC", items = positive_items, 
+     main = "Positive Discrimination" )
+
+plot(grm_model, type = "IIC", items = negative_items, 
+     main = "Negative Discrimination" )
+
+```
+
+Larger (more positive) thresholds mean a respondent needs a higher latent pro-environmental preference to rate the product positively. Lower thresholds mean a respondent needs a lower latent pro-environmental trait to rate the product positively, since the product has a high environmental impact. The discrimination parameter indicates how well the item distinguishes between respondents with different levels of the latent trait (pro-environmental consumer tendency). Higher positive values mean the product profile strongly differentiates between low and high scorers.Items with negative discrimination suggest that as latent pro-environmental trait increases, respondents actually like the product less — which reflects the negative impact of the product on the 'green consumerism' score.
+
+
+```{r, fig.width=10, fig.height=9, echo=FALSE, warning=FALSE, message=FALSE} 
+# Recode to numeric 
+
+load("C:/Users/sagomm/polybox - Sarah Gomm (sarah.gomm@ir.gess.ethz.ch)@polybox.ethz.ch (2)/Shared/SEP_Consumption/Analysis/Data/w14_conjoint.RData") 
+
+price_levels <- c("Very low price", "Low price", "Medium price", "High price", "Very high price") 
+
+dfconj$price_num <- as.numeric(factor(dfconj$price, levels = price_levels))  
+impact_levels <- c("Very low", "Low", "Medium", "High", "Very high") 
+
+dfconj$impact_num <- as.numeric(factor(dfconj$impact, levels = impact_levels))  
+
+#dfconj$rating_num <- dfconj$rating  
+#PLOT Distribution as 3D scatterplot 
+counts <- dfconj %>%   count(price_num, impact_num, rating_num, name = "count") 
+
+fig <- plot_ly(   counts,   x = ~price_num,   y = ~impact_num,   z = ~rating_num,   size = ~count,   color = ~count,   type = "scatter3d",   mode = "markers",   marker = list(sizemode = "diameter", opacity = 0.8) ) %>%   layout(     scene = list(       xaxis = list(title = "Price (1:low-5:high)"),       yaxis = list(title = "Environmental impact (1:low-5:high)"),       zaxis = list(title = "Rating (1–7)")     ),     title = "3D Scatter Plot of Rating Frequencies"   )  
+
+fig
+```
