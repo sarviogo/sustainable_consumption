@@ -3,9 +3,9 @@ title: "Determinants of environmentally friendly consumption"
 author: "Analysis by Sarah Gomm"
 date: "`r Sys.Date()`"
 output:
-  pdf_document:
-    number_sections: true
   html_document:
+    number_sections: true
+  pdf_document:
     number_sections: true
 subtitle: Comparing two conceptual frameworks
 ---
